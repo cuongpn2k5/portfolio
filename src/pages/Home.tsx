@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef } from 'react';
-import { gsap } from 'gsap';
+import { gsap, ScrollTrigger } from '../utils/gsap';
 import { Intro } from '../sections/Intro';
 import { Hero } from '../sections/Hero';
 import { About } from '../sections/About';
@@ -12,6 +12,7 @@ export const Home: React.FC = () => {
   const {
     stage,
     isIntroActive,
+    cardEntranceTrigger,
     triggerCardEntrance,
     triggerHeroEntrance,
     completeTransition,
@@ -22,14 +23,12 @@ export const Home: React.FC = () => {
 
   // Manage body scroll lock during Intro and Page Transition
   useEffect(() => {
-    if (isIntroActive) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
+    if (!isIntroActive) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
 
     return () => {
-      document.body.style.overflow = '';
+      document.body.style.overflow = previousOverflow;
     };
   }, [isIntroActive]);
 
@@ -46,6 +45,11 @@ export const Home: React.FC = () => {
 
     if (stage === 'entered') {
       gsap.set(track, { clearProps: 'transform' });
+      // Layout has transitioned from 100dvh locked track to normal document flow.
+      // Refresh all ScrollTrigger instances so section triggers calculate correct scroll offsets.
+      requestAnimationFrame(() => {
+        ScrollTrigger.refresh();
+      });
       return;
     }
 
@@ -56,27 +60,33 @@ export const Home: React.FC = () => {
     gsap.set(track, { y: 0 });
 
     const timeline = gsap.timeline({
-      onComplete: () => {
-        document.body.style.overflow = '';
-        completeTransition();
-      },
+      onComplete: completeTransition,
     });
 
     timeline.to(
       track,
       {
         y: -travel,
-        duration: 1.1,
+        duration: 0.85,
         ease: 'power3.inOut',
       },
       0
     );
 
-    timeline.call(triggerCardEntrance, [], 0.94);
-    timeline.call(triggerHeroEntrance, [], 1.0);
+    // Release while Home is still rising; the physical drop overlaps the
+    // shared track movement instead of waiting for a separate scene handoff.
+    timeline.call(triggerCardEntrance, [], 0.18);
+    timeline.call(triggerHeroEntrance, [], 0.5);
+
+    // A resize ends the slide safely rather than leaving a stale viewport
+    // offset. The watchdog also releases Home if the timeline is interrupted.
+    const fallback = window.setTimeout(completeTransition, 1450);
+    window.addEventListener('resize', completeTransition);
 
     return () => {
       timeline.kill();
+      window.clearTimeout(fallback);
+      window.removeEventListener('resize', completeTransition);
     };
   }, [stage, triggerCardEntrance, triggerHeroEntrance, completeTransition]);
 
@@ -89,15 +99,23 @@ export const Home: React.FC = () => {
       >
         <div
           ref={transitionTrackRef}
+          data-intro-track
+          data-stage={stage}
+          data-card-entrance={cardEntranceTrigger ? 'released' : 'waiting'}
           className={`w-full ${isIntroActive ? 'will-change-transform' : ''}`}
         >
-          {isIntroActive && (
-            <div ref={introPanelRef} className="h-[100dvh] w-full overflow-hidden">
-              <Intro />
-            </div>
-          )}
+          {/* Keep the sibling stable so removing Intro never remounts Home/Canvas. */}
+          <div
+            ref={introPanelRef}
+            data-intro-panel
+            className={isIntroActive ? 'h-[100dvh] w-full overflow-hidden' : 'hidden'}
+          >
+            {isIntroActive && <Intro />}
+          </div>
 
           <div
+            data-home-panel
+            inert={isIntroActive}
             className={`min-h-screen bg-[var(--color-bg)] transition-colors duration-300 ${
               isIntroActive ? 'min-h-[100dvh] pt-[72px]' : ''
             }`}

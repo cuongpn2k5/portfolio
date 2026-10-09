@@ -9,7 +9,12 @@ export const IntroTransitionProvider: React.FC<{ children: React.ReactNode }> = 
   const [stage, setStage] = useState<IntroStage>(() => {
     if (typeof window === 'undefined') return 'entered';
     const forceIntro = new URLSearchParams(window.location.search).get('intro') === 'true';
-    const seen = sessionStorage.getItem('pnc-portfolio-intro-seen');
+    let seen: string | null = null;
+    try {
+      seen = sessionStorage.getItem('pnc-portfolio-intro-seen');
+    } catch {
+      // Storage may be unavailable in private or restricted browsing.
+    }
     if ((forceIntro || !seen) && !prefersReducedMotion) {
       return 'intro';
     }
@@ -22,7 +27,7 @@ export const IntroTransitionProvider: React.FC<{ children: React.ReactNode }> = 
 
   const startTransition = useCallback(() => {
     if (isSkippedRef.current) return;
-    setStage('transitioning');
+    setStage((current) => current === 'intro' ? 'transitioning' : current);
   }, []);
 
   const triggerCardEntrance = useCallback(() => {

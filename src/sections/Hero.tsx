@@ -1,9 +1,12 @@
-import React, { Suspense, lazy, useRef, useEffect } from 'react';
-import { ArrowRight, User, Sparkles } from 'lucide-react';
+import React, { Suspense, lazy, useRef, useEffect, useLayoutEffect, useState } from 'react';
+import { Sparkles } from 'lucide-react';
 import { gsap } from 'gsap';
+import { SplitText } from 'gsap/SplitText';
 import { profileData } from '../data/profile';
-import { Button } from '../components/common/Button';
 import { useIntroTransition } from '../hooks/useIntroTransition';
+import { useReducedMotion } from '../hooks/useReducedMotion';
+
+gsap.registerPlugin(SplitText);
 
 const HangingIDCard = lazy(() =>
   import('../components/three/HangingIDCard').then((module) => ({
@@ -13,6 +16,9 @@ const HangingIDCard = lazy(() =>
 
 export const Hero: React.FC = () => {
   const { heroEntranceTrigger, isIntroActive } = useIntroTransition();
+  const prefersReducedMotion = useReducedMotion();
+  // Preserve the pending drop even if the lazy scene finishes loading later.
+  const [cardEntrancePending] = useState(isIntroActive);
 
   const introBadgeRef = useRef<HTMLDivElement>(null);
   const headingLine1Ref = useRef<HTMLSpanElement>(null);
@@ -20,19 +26,38 @@ export const Hero: React.FC = () => {
   const descriptionRef = useRef<HTMLParagraphElement>(null);
   const badgesContainerRef = useRef<HTMLDivElement>(null);
   const ctaContainerRef = useRef<HTMLDivElement>(null);
+  const scrollIndicatorRef = useRef<HTMLDivElement>(null);
+  const scrollArrowRef = useRef<HTMLSpanElement>(null);
   const heroAnimationStartedRef = useRef(false);
   const heroAnimationContextRef = useRef<ReturnType<typeof gsap.context> | null>(null);
+  const heroFallbackRef = useRef<number | null>(null);
+  const splitsRef = useRef<SplitText[]>([]);
+  const arrowTweenRef = useRef<gsap.core.Tween | null>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const animatedElements = [
       introBadgeRef.current,
       headingLine1Ref.current,
       headingLine2Ref.current,
       descriptionRef.current,
       ...(badgesContainerRef.current ? Array.from(badgesContainerRef.current.children) : []),
-      ...(ctaContainerRef.current ? Array.from(ctaContainerRef.current.children) : []),
+      ...(ctaContainerRef.current ? Array.from(ctaContainerRef.current.querySelectorAll(':scope > div:first-child > button')) : []),
+      scrollIndicatorRef.current,
     ].filter(Boolean);
 
+    const showContent = () => {
+      splitsRef.current.forEach(split => split.revert());
+      splitsRef.current = [];
+      gsap.set(animatedElements, { clearProps: 'opacity,transform,filter' });
+    };
+
+    if (prefersReducedMotion) {
+      heroAnimationContextRef.current?.kill();
+      arrowTweenRef.current?.kill();
+      gsap.set(scrollArrowRef.current, { clearProps: 'transform' });
+      showContent();
+      return;
+    }
     if (!heroEntranceTrigger) return;
 
     // Once started, the timeline owns its lifecycle even when the global stage
@@ -42,7 +67,12 @@ export const Hero: React.FC = () => {
     // Direct visits, refreshes after Intro, reduced motion, and Skip Intro all
     // start in the safe visible state without relying on a timeline completing.
     if (!isIntroActive) {
-      gsap.set(animatedElements, { clearProps: 'opacity,transform,filter' });
+      showContent();
+      if (!arrowTweenRef.current && scrollArrowRef.current) {
+        arrowTweenRef.current = gsap.to(scrollArrowRef.current, {
+          y: 5, duration: 1.8, repeat: -1, yoyo: true, ease: 'sine.inOut',
+        });
+      }
       return;
     }
 
@@ -52,70 +82,119 @@ export const Hero: React.FC = () => {
       const tl = gsap.timeline({
         defaults: { ease: 'power3.out' },
         onComplete: () => {
-          gsap.set(animatedElements, { clearProps: 'opacity,transform,filter' });
+          if (heroFallbackRef.current !== null) window.clearTimeout(heroFallbackRef.current);
+          showContent();
         },
       });
 
-      // A. Small introductory badge (0.0s relative = 1.0s after transition start)
+      // A. Small introductory badge
       if (introBadgeRef.current) {
         tl.fromTo(
           introBadgeRef.current,
           { opacity: 0, y: 20 },
-          { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out' },
+          { opacity: 1, y: 0, duration: 0.7 },
           0.0
         );
       }
 
-      // B. Main heading (0.15s relative = 1.15s after transition start)
-      if (headingLine1Ref.current) {
+      // B. Main heading
+      const revealHeading = (element: HTMLSpanElement | null, start: number) => {
+        if (!element) return;
+        const originalBackground = element.style.backgroundImage;
+        const split = SplitText.create(element, {
+          type: 'chars', mask: 'chars', aria: 'auto', charsClass: 'hero-character',
+          onRevert: () => { element.style.backgroundImage = originalBackground; },
+        });
+        // Give descenders and Vietnamese marks room in both the mask and the
+        // background-clipped glyph box, without changing the line's spacing.
+        gsap.set(split.masks, { overflowClipMargin: '0.2em' });
+        gsap.set(split.chars, {
+          paddingTop: '0.2em', paddingBottom: '0.2em',
+          marginTop: '-0.2em', marginBottom: '-0.2em',
+        });
+        // Background-clipped text needs its paint on the moving characters.
+        // Align every character to the original full-line gradient.
+        const background = getComputedStyle(element).backgroundImage;
+        if (background !== 'none') {
+          const bounds = element.getBoundingClientRect();
+          split.chars.forEach(character => {
+            const offset = character.getBoundingClientRect().left - bounds.left;
+            gsap.set(character, {
+              backgroundImage: background,
+              backgroundSize: `${bounds.width}px 100%`,
+              backgroundPosition: `${-offset}px 0`,
+              backgroundClip: 'text',
+            });
+          });
+          // Paint the gradient only once while characters move, then restore
+          // the original full-line background when the split is reverted.
+          element.style.backgroundImage = 'none';
+        }
+        splitsRef.current.push(split);
         tl.fromTo(
-          headingLine1Ref.current,
+          split.chars,
           { opacity: 0, yPercent: 110 },
-          { opacity: 1, yPercent: 0, duration: 0.55 },
-          0.15
+          { opacity: 1, yPercent: 0, duration: 0.9, stagger: 0.055 },
+          start
         );
-      }
-      if (headingLine2Ref.current) {
-        tl.fromTo(
-          headingLine2Ref.current,
-          { opacity: 0, yPercent: 110 },
-          { opacity: 1, yPercent: 0, duration: 0.55 },
-          0.28
-        );
-      }
+      };
+      revealHeading(headingLine1Ref.current, 0.18);
+      revealHeading(headingLine2Ref.current, 0.48);
 
-      // C. Description paragraph (0.55s relative = 1.55s after transition start)
+      // C. Description paragraph
       if (descriptionRef.current) {
-        tl.fromTo(
-          descriptionRef.current,
-          { opacity: 0, y: 25, filter: 'blur(6px)' },
-          { opacity: 1, y: 0, filter: 'blur(0px)', duration: 0.55 },
-          0.55
-        );
+        const split = SplitText.create(descriptionRef.current, {
+          type: 'lines', autoSplit: true, aria: 'auto', linesClass: 'hero-description-line',
+          onSplit(self) {
+            const tween = gsap.fromTo(self.lines,
+              { opacity: 0, y: 25 },
+              { opacity: 1, y: 0, duration: 0.8, stagger: 0.12, ease: 'power3.out' }
+            );
+            tl.add(tween, 1.05);
+            return tween;
+          },
+        });
+        splitsRef.current.push(split);
       }
 
-      // D. Availability and location badges (0.8s relative = 1.8s after transition start)
+      // D. Availability and location badges
       if (badgesContainerRef.current) {
         tl.fromTo(
           badgesContainerRef.current.children,
-          { opacity: 0, y: 16 },
-          { opacity: 1, y: 0, stagger: 0.1, duration: 0.4, ease: 'power2.out' },
-          0.8
+          { opacity: 0, y: 15 },
+          { opacity: 1, y: 0, stagger: 0.12, duration: 0.55 },
+          1.75
         );
       }
 
-      // E. CTA buttons (1.0s relative = 2.0s after transition start)
+      // E. CTA buttons
       if (ctaContainerRef.current) {
         tl.fromTo(
-          ctaContainerRef.current.children,
+          ctaContainerRef.current.querySelectorAll(':scope > div:first-child > button'),
           { opacity: 0, y: 20 },
-          { opacity: 1, y: 0, stagger: 0.1, duration: 0.45 },
-          1.0
+          { opacity: 1, y: 0, stagger: 0.14, duration: 0.65 },
+          2.05
         );
       }
+      if (scrollIndicatorRef.current) {
+        tl.fromTo(scrollIndicatorRef.current,
+          { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.6 }, 2.48);
+      }
+      tl.call(() => {
+        if (scrollArrowRef.current) {
+          arrowTweenRef.current = gsap.to(scrollArrowRef.current, {
+            y: 5, duration: 1.8, repeat: -1, yoyo: true, ease: 'sine.inOut',
+          });
+        }
+      }, [], 3.08);
     });
     heroAnimationContextRef.current = ctx;
-  }, [heroEntranceTrigger, isIntroActive]);
+    // Interrupted timelines must never leave the landing content invisible.
+    heroFallbackRef.current = window.setTimeout(() => {
+      ctx.kill();
+      showContent();
+    }, 4500);
+  }, [heroEntranceTrigger, isIntroActive, prefersReducedMotion]);
 
   useEffect(() => {
     const animatedElements = [
@@ -124,11 +203,17 @@ export const Hero: React.FC = () => {
       headingLine2Ref.current,
       descriptionRef.current,
       ...(badgesContainerRef.current ? Array.from(badgesContainerRef.current.children) : []),
-      ...(ctaContainerRef.current ? Array.from(ctaContainerRef.current.children) : []),
+      ...(ctaContainerRef.current ? Array.from(ctaContainerRef.current.querySelectorAll(':scope > div:first-child > button')) : []),
+      scrollIndicatorRef.current,
     ].filter(Boolean);
 
     return () => {
+      if (heroFallbackRef.current !== null) window.clearTimeout(heroFallbackRef.current);
       heroAnimationContextRef.current?.revert();
+      arrowTweenRef.current?.kill();
+      arrowTweenRef.current = null;
+      splitsRef.current.forEach(split => split.revert());
+      splitsRef.current = [];
       heroAnimationContextRef.current = null;
       heroAnimationStartedRef.current = false;
       gsap.set(animatedElements, { clearProps: 'opacity,transform,filter' });
@@ -142,7 +227,7 @@ export const Hero: React.FC = () => {
     }
   };
 
-  const isInitialHidden = isIntroActive && !heroEntranceTrigger;
+  const isInitialHidden = isIntroActive && !heroEntranceTrigger && !prefersReducedMotion;
 
   return (
     <section
@@ -152,7 +237,7 @@ export const Hero: React.FC = () => {
       {/* ── Viewport-Sized Interactive 3D Hanging ID Card Layer ── */}
       <div className="absolute inset-x-0 -top-[72px] bottom-0 z-20 pointer-events-none overflow-visible">
         <Suspense fallback={null}>
-          <HangingIDCard profile={profileData} />
+          <HangingIDCard profile={profileData} entrancePending={cardEntrancePending} />
         </Suspense>
       </div>
 
@@ -178,23 +263,23 @@ export const Hero: React.FC = () => {
             </div>
 
             {/* Main Heading with overflow-hidden text masks */}
-            <h1 className="text-4xl sm:text-6xl lg:text-7xl font-bold tracking-tight text-[var(--color-text)] leading-[1.05]">
-              <div className="overflow-hidden py-0.5">
+            <h1 className="text-4xl sm:text-6xl lg:text-7xl font-bold tracking-tight text-[var(--color-text)] leading-[1.12] sm:leading-[1.1]">
+              <div className="overflow-hidden pt-2 pb-2.5 sm:pt-3 sm:pb-3.5 -my-2 sm:-my-3">
                 <span
                   ref={headingLine1Ref}
                   className={`block will-change-transform ${isInitialHidden ? 'opacity-0' : ''}`}
                 >
-                  Full-stack
+                  Phan Nhật
                 </span>
               </div>
-              <div className="overflow-hidden py-0.5">
+              <div className="overflow-hidden pt-1 pb-4 sm:pb-5 -mt-1 -mb-4 sm:-mb-5">
                 <span
                   ref={headingLine2Ref}
-                  className={`block text-transparent bg-clip-text bg-gradient-to-r from-[var(--color-text)] via-[var(--color-text)] to-[var(--color-accent)] will-change-transform ${
+                  className={`block text-transparent bg-clip-text bg-gradient-to-r from-[var(--color-text)] via-[var(--color-text)] to-[var(--color-accent)] will-change-transform pb-1 sm:pb-1.5 ${
                     isInitialHidden ? 'opacity-0' : ''
                   }`}
                 >
-                  Developer.
+                  Cường.
                 </span>
               </div>
             </h1>
@@ -231,33 +316,49 @@ export const Hero: React.FC = () => {
               </div>
             </div>
 
-            {/* Call to action buttons */}
+            {/* Interactive Explorer Links & Scroll Indicator */}
             <div
               ref={ctaContainerRef}
-              className="pt-4 flex flex-wrap gap-4 items-center"
+              className="pt-8 flex flex-col sm:flex-row sm:items-end justify-between gap-6"
             >
-              <div className={isInitialHidden ? 'opacity-0' : ''}>
-                <Button
-                  variant="primary"
-                  size="lg"
+              {/* Left: Quick exploration links */}
+              <div
+                className="flex flex-col space-y-2 text-xs sm:text-sm font-mono text-[var(--color-text-muted)]"
+              >
+                <button
+                  type="button"
                   onClick={() => scrollTo('portfolio')}
-                  aria-label="View Projects in Portfolio"
+                  className={`inline-flex items-center space-x-2.5 text-left hover:text-[var(--color-text)] transition-colors cursor-pointer group w-fit focus-visible:outline-2 focus-visible:outline-[var(--color-focus)] rounded py-0.5 ${isInitialHidden ? 'opacity-0' : ''}`}
                 >
-                  <span>View Projects</span>
-                  <ArrowRight className="w-4 h-4 ml-1" />
-                </Button>
+                  <span className="text-[var(--color-accent)] group-hover:translate-y-0.5 transition-transform duration-200 select-none">↓</span>
+                  <span>explore my work below</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => scrollTo('contact')}
+                  className={`inline-flex items-center space-x-2.5 text-left hover:text-[var(--color-text)] transition-colors cursor-pointer group w-fit focus-visible:outline-2 focus-visible:outline-[var(--color-focus)] rounded py-0.5 ${isInitialHidden ? 'opacity-0' : ''}`}
+                >
+                  <span className="text-[var(--color-accent)] group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform duration-200 select-none">↗</span>
+                  <span>open to full-time & freelance opportunities</span>
+                </button>
               </div>
 
-              <div className={isInitialHidden ? 'opacity-0' : ''}>
-                <Button
-                  variant="secondary"
-                  size="lg"
+              {/* Right: SCROLL ↓ indicator */}
+              <div
+                ref={scrollIndicatorRef}
+                className={`will-change-transform self-start sm:self-end ${
+                  isInitialHidden ? 'opacity-0' : ''
+                }`}
+              >
+                <button
+                  type="button"
                   onClick={() => scrollTo('about')}
-                  aria-label="Navigate to About Me section"
+                  className="inline-flex items-center space-x-2 text-xs font-mono tracking-widest uppercase text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors cursor-pointer group focus-visible:outline-2 focus-visible:outline-[var(--color-focus)] rounded py-1"
+                  aria-label="Scroll down to About section"
                 >
-                  <User className="w-4 h-4 mr-1" />
-                  <span>About Me</span>
-                </Button>
+                  <span>SCROLL</span>
+                  <span className="text-[var(--color-accent)] group-hover:translate-y-0.5 transition-transform duration-200 select-none"><span ref={scrollArrowRef} className="inline-block">↓</span></span>
+                </button>
               </div>
             </div>
           </div>

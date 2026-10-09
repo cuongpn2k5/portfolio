@@ -13,13 +13,15 @@ function ScrollToAnchor() {
   useEffect(() => {
     if (location.hash) {
       const id = location.hash.replace('#', '');
-      const element = document.getElementById(id);
-      if (element) {
-        // Small delay to ensure layout is ready
-        setTimeout(() => {
-          element.scrollIntoView({ behavior: 'smooth' });
-        }, 80);
-      }
+      const timer = setTimeout(() => {
+        const element = document.getElementById(id);
+        if (element) {
+          const navOffset = id === 'home' ? 0 : 76;
+          const targetY = id === 'home' ? 0 : Math.max(0, element.getBoundingClientRect().top + window.scrollY - navOffset);
+          window.scrollTo({ top: targetY, behavior: 'smooth' });
+        }
+      }, 100);
+      return () => clearTimeout(timer);
     }
   }, [location.pathname, location.hash]);
 

@@ -3,35 +3,35 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { ProfileData } from '../../types';
 import { createIDCardTextures, createStrapTexture } from './cardTextures';
+import {
+  CARD_RELEASE_VELOCITY,
+  CARD_RELEASE_ANGULAR_VELOCITY,
+  CARD_RELEASE_ROTATION,
+  CARD_FIXED_TIMESTEP,
+  CARD_MAX_SUBSTEPS,
+  stepCardBody,
+} from './cardPhysics';
 
 interface IDCard3DProps {
   profile: ProfileData;
   entranceTrigger?: boolean;
   isIntroActive?: boolean;
+  entrancePending?: boolean;
   onInteractionChange?: (active: boolean) => void;
 }
 
 const STRAP_SEGMENTS = 32;
 const STRAP_WIDTH = 0.24; // Flat ribbon lanyard width matching Image 2
 const STRAP_THICKNESS = 0.012; // Realistic fabric ribbon thickness
-const FIXED_TIMESTEP = 1 / 120;
-const MAX_SUBSTEPS = 6;
-const CARD_MASS = 1.35;
+const FIXED_TIMESTEP = CARD_FIXED_TIMESTEP;
+const MAX_SUBSTEPS = CARD_MAX_SUBSTEPS;
 const DRAG_STIFFNESS = 72;
 const DRAG_DAMPING = 15;
 const MAX_DRAG_FORCE = 105;
-const STRAP_STIFFNESS = 210;
-const STRAP_DAMPING = 20;
-// 0.57s is 40% shorter than the previous 0.95s entrance.
-const ENTRANCE_DURATION = 0.57;
-const ENTRANCE_GRAVITY = -9.81;
-const ENTRANCE_START_X_OFFSET = -0.04;
-const ENTRANCE_HANDOFF_X_OFFSET = 0.18;
-const ENTRANCE_REBOUND_HEIGHT_RATIO = 0.07;
+const ENTRANCE_START_X_OFFSET = 0.65;
 
 type PhysicsPhase =
   | 'entrance'
-  | 'catch'
   | 'rebound'
   | 'settling'
   | 'interactive'
@@ -47,6 +47,7 @@ export const IDCard3D: React.FC<IDCard3DProps> = ({
   profile,
   entranceTrigger = true,
   isIntroActive = false,
+  entrancePending = isIntroActive,
   onInteractionChange,
 }) => {
   const { camera, viewport, gl } = useThree();
@@ -104,18 +105,9 @@ export const IDCard3D: React.FC<IDCard3DProps> = ({
   );
   const strapTexture = useMemo(() => createStrapTexture(), []);
 
-  const waitsForEntrance = isIntroActive && !entranceTrigger;
+  const waitsForEntrance = entrancePending;
   const phaseRef = useRef<PhysicsPhase>(waitsForEntrance ? 'entrance' : 'settling');
   const entranceStartedRef = useRef(!waitsForEntrance);
-  const entranceStartTimeRef = useRef(0);
-
-  // Trigger controlled descent when signaled
-  useEffect(() => {
-    if (entranceTrigger && phaseRef.current === 'entrance' && !entranceStartedRef.current) {
-      entranceStartedRef.current = true;
-      entranceStartTimeRef.current = performance.now();
-    }
-  }, [entranceTrigger]);
 
   const topClipOffset = cardDims.h * 0.5 + 0.08 * cardScale;
   const restingPosition = useMemo(
@@ -124,18 +116,20 @@ export const IDCard3D: React.FC<IDCard3DProps> = ({
   );
 
   const initialQuaternion = useMemo(
-    () => new THREE.Quaternion().setFromEuler(new THREE.Euler(0.1, 0, -0.12)),
+    () => new THREE.Quaternion().setFromEuler(new THREE.Euler(
+      CARD_RELEASE_ROTATION.x, CARD_RELEASE_ROTATION.y, CARD_RELEASE_ROTATION.z
+    )),
     []
   );
 
   // A compact rigid-body state. Position and orientation are advanced only by
-  // the entrance lifecycle or the fixed-step force solver below.
+  // the fixed-step force and clip-constraint solver below.
   const physicsRef = useRef({
     pos: waitsForEntrance
       ? new THREE.Vector3(
           anchorPos.x + ENTRANCE_START_X_OFFSET,
-          anchorPos.y + cardDims.h + 0.8,
-          0
+          anchorPos.y + cardDims.h * 0.45 + 0.35,
+          0.02
         )
       : restingPosition.clone(),
     vel: new THREE.Vector3(0, 0, 0),
@@ -150,7 +144,6 @@ export const IDCard3D: React.FC<IDCard3DProps> = ({
     mouseNDC: new THREE.Vector2(),
     accumulator: 0,
     restTime: 0,
-    elapsedTime: 0,
     entranceCatchPending: waitsForEntrance,
     reboundElapsed: 0,
   });
@@ -314,9 +307,10 @@ export const IDCard3D: React.FC<IDCard3DProps> = ({
     };
 
     const handlePointerDown = (e: PointerEvent) => {
+      if (isIntroActive) return;
       // Floating navigation and theme controls remain independent of the canvas.
       if (e.target instanceof Element && e.target.closest('header, button, a, [role="dialog"]')) return;
-      if (phaseRef.current !== 'interactive' && phaseRef.current !== 'released') return;
+      if (phaseRef.current === 'entrance' || phaseRef.current === 'rebound') return;
       const { ndcX, ndcY } = getNDC(e);
       mouseVec.set(ndcX, ndcY);
 
@@ -330,6 +324,7 @@ export const IDCard3D: React.FC<IDCard3DProps> = ({
 
           isDraggingRef.current = true;
           activePointerIdRef.current = e.pointerId;
+          gl.domElement.setPointerCapture(e.pointerId);
           phaseRef.current = 'dragging';
           onInteractionChange?.(true);
 
@@ -356,6 +351,9 @@ export const IDCard3D: React.FC<IDCard3DProps> = ({
       ) {
         isDraggingRef.current = false;
         activePointerIdRef.current = null;
+        if (gl.domElement.hasPointerCapture(e.pointerId)) {
+          gl.domElement.releasePointerCapture(e.pointerId);
+        }
         phaseRef.current = 'released';
         physicsRef.current.pointerVelocity.set(0, 0, 0);
 
@@ -373,110 +371,60 @@ export const IDCard3D: React.FC<IDCard3DProps> = ({
 
     window.addEventListener('pointermove', handleWindowPointerMove);
     window.addEventListener('pointerdown', handlePointerDown);
-    window.addEventListener('pointerup', handlePointerUp);
-    window.addEventListener('pointercancel', handlePointerUp);
+    // Capture the release before canvas/overlay handlers can consume it.
+    window.addEventListener('pointerup', handlePointerUp, true);
+    window.addEventListener('pointercancel', handlePointerUp, true);
+    window.addEventListener('lostpointercapture', handlePointerUp, true);
 
     return () => {
       window.removeEventListener('pointermove', handleWindowPointerMove);
       window.removeEventListener('pointerdown', handlePointerDown);
-      window.removeEventListener('pointerup', handlePointerUp);
-      window.removeEventListener('pointercancel', handlePointerUp);
+      window.removeEventListener('pointerup', handlePointerUp, true);
+      window.removeEventListener('pointercancel', handlePointerUp, true);
+      window.removeEventListener('lostpointercapture', handlePointerUp, true);
     };
-  }, [camera, gl, anchorPos, strapLength, cardDims.h, onInteractionChange]);
+  }, [camera, gl, anchorPos, strapLength, cardDims.h, onInteractionChange, isIntroActive]);
 
   // ── Physics & Animation Frame ──────────────────────────────────────────
   useFrame((_, delta) => {
     const p = physicsRef.current;
-    const frameDt = Math.min(delta, 0.05);
-    p.elapsedTime += frameDt;
+    const frameDt = Math.min(delta, FIXED_TIMESTEP * MAX_SUBSTEPS);
     const isDragging = isDraggingRef.current;
+
+    // Release once on the first physics frame after the shared slide signals it.
+    // StrictMode effect replay never reseeds this body's velocity.
+    if (entranceTrigger && phaseRef.current === 'entrance' && !entranceStartedRef.current) {
+      entranceStartedRef.current = true;
+      p.vel.set(CARD_RELEASE_VELOCITY.x, CARD_RELEASE_VELOCITY.y, CARD_RELEASE_VELOCITY.z);
+      p.angularVel.set(
+        CARD_RELEASE_ANGULAR_VELOCITY.x,
+        CARD_RELEASE_ANGULAR_VELOCITY.y,
+        CARD_RELEASE_ANGULAR_VELOCITY.z
+      );
+    }
 
     if (phaseRef.current === 'entrance' && !entranceStartedRef.current) {
       p.pos.set(
         anchorPos.x + ENTRANCE_START_X_OFFSET,
-        anchorPos.y + cardDims.h + 0.8,
-        0
+        anchorPos.y + cardDims.h * 0.45 + 0.35,
+        0.02
       );
       p.quaternion.copy(initialQuaternion);
       p.vel.set(0, 0, 0);
       p.angularVel.set(0, 0, 0);
-    } else if (phaseRef.current === 'entrance') {
-      const now = performance.now();
-      const elapsed = (now - entranceStartTimeRef.current) / 1000;
-      const dropTime = Math.min(ENTRANCE_DURATION, Math.max(0, elapsed));
-      const progress = dropTime / ENTRANCE_DURATION;
-      const startPos = new THREE.Vector3(
-        anchorPos.x + ENTRANCE_START_X_OFFSET,
-        anchorPos.y + cardDims.h + 0.8,
-        0
-      );
-      const targetPos = restingPosition
-        .clone()
-        .add(new THREE.Vector3(ENTRANCE_HANDOFF_X_OFFSET, 0.1, 0));
-
-      // Solve the initial velocity so the card reaches the handoff point in
-      // exactly ENTRANCE_DURATION while accelerating under gravity.
-      const entranceAcceleration = new THREE.Vector3(0, ENTRANCE_GRAVITY, 0);
-      const initialVelocity = targetPos
-        .clone()
-        .sub(startPos)
-        .addScaledVector(
-          entranceAcceleration,
-          -0.5 * ENTRANCE_DURATION * ENTRANCE_DURATION
-        )
-        .divideScalar(ENTRANCE_DURATION);
-
-      p.pos
-        .copy(startPos)
-        .addScaledVector(initialVelocity, dropTime)
-        .addScaledVector(entranceAcceleration, 0.5 * dropTime * dropTime);
-      p.vel.copy(initialVelocity).addScaledVector(entranceAcceleration, dropTime);
-
-      const targetQuaternion = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0.045));
-      p.quaternion.copy(initialQuaternion).slerp(targetQuaternion, progress);
-
-      if (progress >= 1.0) {
-        phaseRef.current = 'catch';
-        p.entranceCatchPending = true;
-        // The ballistic velocity is preserved. Gravity and the lanyard now
-        // provide the visible deceleration, small swing, and final settling.
-        p.angularVel.set(0, 0, 0.12);
-      }
     } else {
       p.accumulator = Math.min(p.accumulator + frameDt, FIXED_TIMESTEP * MAX_SUBSTEPS);
       let substeps = 0;
 
       while (p.accumulator >= FIXED_TIMESTEP && substeps < MAX_SUBSTEPS) {
         const dt = FIXED_TIMESTEP;
-        const force = new THREE.Vector3(0, -9.81 * CARD_MASS, -p.pos.z * 18 - p.vel.z * 5);
+        const force = new THREE.Vector3(0, 0, -p.pos.z * 16 - p.vel.z * 4);
         const torque = new THREE.Vector3();
 
         const addForceAtPoint = (appliedForce: THREE.Vector3, offset: THREE.Vector3) => {
           force.add(appliedForce);
           torque.add(new THREE.Vector3().crossVectors(offset, appliedForce));
         };
-
-        // Fabric lanyard: slack when close, increasingly taut at its rest
-        // length. Applying tension at the top clip naturally rights the card.
-        const clipOffset = new THREE.Vector3(0, topClipOffset, 0).applyQuaternion(p.quaternion);
-        const clipWorld = p.pos.clone().add(clipOffset);
-        const outward = clipWorld.clone().sub(anchorPos);
-        const clipDistance = outward.length();
-        if (clipDistance > 0.0001) {
-          outward.divideScalar(clipDistance);
-          const clipVelocity = p.vel.clone().add(
-            new THREE.Vector3().crossVectors(p.angularVel, clipOffset)
-          );
-          const radialVelocity = clipVelocity.dot(outward);
-          const extension = clipDistance - strapLength;
-          if (extension > 0) {
-            const magnitude = Math.max(
-              0,
-              extension * STRAP_STIFFNESS + Math.max(0, radialVelocity) * STRAP_DAMPING
-            );
-            addForceAtPoint(outward.clone().multiplyScalar(-magnitude), clipOffset);
-          }
-        }
 
         // A damped virtual handle pulls the exact point that was grabbed.
         // Applying it off-center creates real torque; no rotation is authored.
@@ -495,76 +443,31 @@ export const IDCard3D: React.FC<IDCard3DProps> = ({
           addForceAtPoint(dragForce, grabOffset);
         }
 
-        p.vel.addScaledVector(force, dt / CARD_MASS);
-
-        // Box inertia in local space, transformed back to world space.
-        const inverseInertia = new THREE.Vector3(
-          12 / (CARD_MASS * (cardDims.h * cardDims.h + cardDims.d * cardDims.d)),
-          12 / (CARD_MASS * (cardDims.w * cardDims.w + cardDims.d * cardDims.d)),
-          12 / (CARD_MASS * (cardDims.w * cardDims.w + cardDims.h * cardDims.h))
-        );
-        const inverseRotation = p.quaternion.clone().invert();
-        const localTorque = torque.clone().applyQuaternion(inverseRotation);
-        localTorque.multiply(inverseInertia);
-        p.angularVel.addScaledVector(localTorque.applyQuaternion(p.quaternion), dt);
-
-        p.vel.multiplyScalar(Math.exp(-0.85 * dt));
-        p.angularVel.multiplyScalar(Math.exp(-2.1 * dt));
-        // Preserve the faster entrance momentum until the strap catches it;
-        // normal interaction retains the original, lower safety cap.
-        const isEntranceMotion =
-          phaseRef.current === 'catch' ||
-          phaseRef.current === 'rebound' ||
-          phaseRef.current === 'settling';
-        limitLength(p.vel, isEntranceMotion ? 16 : 11);
-        limitLength(p.angularVel, 8);
-        p.pos.addScaledVector(p.vel, dt);
-
-        const angularSpeed = p.angularVel.length();
-        if (angularSpeed > 0.00001) {
-          const deltaRotation = new THREE.Quaternion().setFromAxisAngle(
-            p.angularVel.clone().divideScalar(angularSpeed),
-            angularSpeed * dt
-          );
-          p.quaternion.premultiply(deltaRotation).normalize();
-        }
-
-        // Non-stretch positional solve for the strap. It corrects only excess
-        // length and removes outward velocity, preserving tangential momentum.
-        const solvedClipOffset = new THREE.Vector3(0, topClipOffset, 0).applyQuaternion(p.quaternion);
-        const solvedClip = p.pos.clone().add(solvedClipOffset);
-        const solvedOutward = solvedClip.sub(anchorPos);
-        const solvedDistance = solvedOutward.length();
-        if (solvedDistance > strapLength * 1.025) {
-          solvedOutward.divideScalar(solvedDistance);
-          p.pos.addScaledVector(solvedOutward, -(solvedDistance - strapLength * 1.025));
-          const outwardSpeed = p.vel.dot(solvedOutward);
-          if (outwardSpeed > 0) {
-            if (p.entranceCatchPending && phaseRef.current === 'catch') {
-              // Convert a small part of the impact into inward velocity. The
-              // target speed corresponds to a theoretical rebound of about 7%
-              // of the card height under gravity, while the incoming-energy
-              // cap prevents the constraint from adding artificial energy.
-              const targetReboundSpeed = Math.sqrt(
-                2 * Math.abs(ENTRANCE_GRAVITY) * cardDims.h * ENTRANCE_REBOUND_HEIGHT_RATIO
-              );
-              const reboundSpeed = Math.min(targetReboundSpeed, outwardSpeed * 0.16);
-              p.vel.addScaledVector(
-                solvedOutward,
-                -(outwardSpeed + reboundSpeed)
-              );
-              p.entranceCatchPending = false;
-              p.reboundElapsed = 0;
-              phaseRef.current = 'rebound';
-            } else {
-              p.vel.addScaledVector(solvedOutward, -outwardSpeed * 0.85);
-            }
-          }
+        const falling = phaseRef.current === 'entrance';
+        const settling = phaseRef.current === 'rebound' || phaseRef.current === 'settling';
+        const caught = stepCardBody(p, {
+          dt,
+          dimensions: cardDims,
+          anchor: anchorPos,
+          clipOffset: topClipOffset,
+          strapLength,
+          falling,
+          firstCatch: p.entranceCatchPending,
+          linearDamping: falling ? 0.08 : settling ? 0.65 : 0.55,
+          angularDamping: falling ? 0.15 : settling ? 1.1 : 0.9,
+          force,
+          torque,
+        });
+        if (caught) {
+          p.entranceCatchPending = false;
+          p.reboundElapsed = 0;
+          phaseRef.current = 'rebound';
         }
 
         if (phaseRef.current === 'rebound') {
           p.reboundElapsed += dt;
-          if (p.reboundElapsed >= 0.22) phaseRef.current = 'settling';
+          // Follow the actual upward velocity through the rebound apex.
+          if (p.reboundElapsed > 0.08 && p.vel.y <= 0) phaseRef.current = 'settling';
         }
 
         p.accumulator -= dt;
@@ -589,6 +492,9 @@ export const IDCard3D: React.FC<IDCard3DProps> = ({
     }
 
     // Apply translation & rotation to Card Group
+    if (gl.domElement.dataset.cardPhase !== phaseRef.current) {
+      gl.domElement.setAttribute('data-card-phase', phaseRef.current);
+    }
     if (cardGroupRef.current) {
       cardGroupRef.current.position.copy(p.pos);
       cardGroupRef.current.quaternion.copy(p.quaternion);
@@ -630,7 +536,9 @@ export const IDCard3D: React.FC<IDCard3DProps> = ({
 
         if (!isDragging) {
           const lagFactor = Math.sin(t * Math.PI);
-          pt.x -= lagFactor * (p.vel.x * 0.03);
+          // Slack fabric can trail the badge; a taut strap must straighten.
+          const slackRatio = Math.max(0, 1 - dist / strapLength);
+          pt.x -= lagFactor * (p.vel.x * 0.03) * slackRatio;
         }
 
         spinePoints.push(pt);

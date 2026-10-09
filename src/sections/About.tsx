@@ -1,24 +1,102 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { User, GraduationCap, FileText, ArrowRight, Code, Layers, Compass } from 'lucide-react';
 import { profileData } from '../data/profile';
 import { Button } from '../components/common/Button';
+import { useReducedMotion } from '../hooks/useReducedMotion';
+import { gsap } from '../utils/gsap';
 
 export const About: React.FC = () => {
+  const containerRef = useRef<HTMLElement>(null);
+  const prefersReducedMotion = useReducedMotion();
+
   const scrollTo = (id: string) => {
     const el = document.getElementById(id);
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth' });
+    if (!el) return;
+    const targetY = Math.max(0, el.getBoundingClientRect().top + window.scrollY - 76);
+    if (prefersReducedMotion) {
+      window.scrollTo({ top: targetY, behavior: 'auto' });
+    } else {
+      gsap.to(window, {
+        duration: 0.85,
+        scrollTo: { y: targetY, autoKill: true },
+        ease: 'power3.inOut',
+      });
     }
   };
 
+  useEffect(() => {
+    if (prefersReducedMotion || !containerRef.current) return;
+
+    const ctx = gsap.context(() => {
+      const tl = gsap.timeline({
+        scrollTrigger: {
+          trigger: containerRef.current,
+          start: 'top 82%',
+          once: true,
+        },
+        defaults: { ease: 'power3.out' },
+      });
+
+      // Heading reveal upward
+      tl.fromTo(
+        '[data-about-heading] > *',
+        { opacity: 0, y: 36 },
+        { opacity: 1, y: 0, duration: 0.8, stagger: 0.12 }
+      );
+
+      // Left Column: Portrait card entering subtly from the right
+      tl.fromTo(
+        '[data-about-card]',
+        { opacity: 0, x: 35 },
+        { opacity: 1, x: 0, duration: 0.85, ease: 'power3.out' },
+        '-=0.6'
+      );
+
+      // Quick cards sequential reveal
+      tl.fromTo(
+        '[data-about-quick-card]',
+        { opacity: 0, y: 25 },
+        { opacity: 1, y: 0, duration: 0.65, stagger: 0.1 },
+        '-=0.55'
+      );
+
+      // Right Column: Biography paragraph-by-paragraph reveal
+      tl.fromTo(
+        '[data-about-bio-p]',
+        { opacity: 0, y: 28 },
+        { opacity: 1, y: 0, duration: 0.75, stagger: 0.14 },
+        '-=0.65'
+      );
+
+      // Key Engineering Focus heading & cards
+      tl.fromTo(
+        '[data-about-focus]',
+        { opacity: 0, y: 25 },
+        { opacity: 1, y: 0, duration: 0.7, stagger: 0.1 },
+        '-=0.5'
+      );
+
+      // Action CTA
+      tl.fromTo(
+        '[data-about-cta]',
+        { opacity: 0, y: 20 },
+        { opacity: 1, y: 0, duration: 0.6 },
+        '-=0.4'
+      );
+    }, containerRef);
+
+    return () => ctx.revert();
+  }, [prefersReducedMotion]);
+
   return (
     <section
+      ref={containerRef}
       id="about"
       className="py-20 lg:py-28 border-t border-[var(--color-border)] bg-[var(--color-bg)] transition-colors duration-300"
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Section Header */}
-        <div className="max-w-2xl mb-16 text-left">
+        <div data-about-heading className="max-w-2xl mb-16 text-left">
           <div className="inline-flex items-center space-x-2 text-xs font-mono uppercase tracking-wider text-[var(--color-accent)] mb-2">
             <User className="w-3.5 h-3.5" />
             <span>Profile & Background</span>
@@ -31,7 +109,7 @@ export const About: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
           {/* Left Column: Developer Card & Education */}
           <div className="lg:col-span-5 space-y-6">
-            <div className="p-6 rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-xs space-y-6">
+            <div data-about-card className="p-6 rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-xs space-y-6">
               {/* Portrait / Avatar Placeholder */}
               <div className="flex items-center space-x-4">
                 <div className="w-20 h-20 rounded-2xl bg-[var(--color-surface-raised)] border border-[var(--color-border)] flex items-center justify-center text-[var(--color-accent)] shadow-inner">
@@ -97,12 +175,12 @@ export const About: React.FC = () => {
 
             {/* Quick Cards */}
             <div className="grid grid-cols-2 gap-4">
-              <div className="p-4 rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)]">
+              <div data-about-quick-card className="p-4 rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)]">
                 <Code className="w-5 h-5 text-[var(--color-accent)] mb-2" />
                 <div className="text-sm font-bold text-[var(--color-text)]">Full-stack</div>
                 <div className="text-xs text-[var(--color-text-muted)] mt-1">End-to-end web apps</div>
               </div>
-              <div className="p-4 rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)]">
+              <div data-about-quick-card className="p-4 rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)]">
                 <Compass className="w-5 h-5 text-[var(--color-accent)] mb-2" />
                 <div className="text-sm font-bold text-[var(--color-text)]">Continuous</div>
                 <div className="text-xs text-[var(--color-text-muted)] mt-1">Exploring new tech</div>
@@ -116,6 +194,7 @@ export const About: React.FC = () => {
               {profileData.bio.map((paragraph, idx) => (
                 <p
                   key={idx}
+                  data-about-bio-p
                   className="text-base sm:text-lg text-[var(--color-text-muted)] leading-relaxed"
                 >
                   {paragraph}
@@ -125,11 +204,11 @@ export const About: React.FC = () => {
 
             {/* Core Values / Engineering Focus */}
             <div className="pt-6 border-t border-[var(--color-border)] space-y-4">
-              <h3 className="text-sm font-mono uppercase tracking-wider text-[var(--color-text)]">
+              <h3 data-about-focus className="text-sm font-mono uppercase tracking-wider text-[var(--color-text)]">
                 Key Engineering Focus
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="p-4 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] space-y-1">
+                <div data-about-focus className="p-4 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] space-y-1">
                   <div className="flex items-center space-x-2 text-sm font-semibold text-[var(--color-text)]">
                     <Layers className="w-4 h-4 text-[var(--color-accent)]" />
                     <span>Modular Architecture</span>
@@ -139,7 +218,7 @@ export const About: React.FC = () => {
                   </p>
                 </div>
 
-                <div className="p-4 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] space-y-1">
+                <div data-about-focus className="p-4 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] space-y-1">
                   <div className="flex items-center space-x-2 text-sm font-semibold text-[var(--color-text)]">
                     <Code className="w-4 h-4 text-[var(--color-accent)]" />
                     <span>Type-Safe Reliability</span>
@@ -152,7 +231,7 @@ export const About: React.FC = () => {
             </div>
 
             {/* Action CTA */}
-            <div className="pt-4 flex items-center">
+            <div data-about-cta className="pt-4 flex items-center">
               <Button
                 variant="primary"
                 onClick={() => scrollTo('portfolio')}

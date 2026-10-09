@@ -5,16 +5,20 @@ import { GithubIcon } from '../components/common/Icons';
 import { projectsData } from '../data/projects';
 import { Badge } from '../components/common/Badge';
 import { Button } from '../components/common/Button';
+import { useReducedMotion } from '../hooks/useReducedMotion';
+import { gsap } from '../utils/gsap';
 
 export const ProjectDetail: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const containerRef = useRef<HTMLElement>(null);
+  const prefersReducedMotion = useReducedMotion();
 
   const project = projectsData.find((p) => p.slug === slug);
 
   useEffect(() => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: prefersReducedMotion ? 'auto' : 'instant' });
     if (headingRef.current) {
       headingRef.current.focus();
     }
@@ -23,7 +27,72 @@ export const ProjectDetail: React.FC = () => {
     } else {
       document.title = 'Project Not Found | Phan Nhat Cuong';
     }
-  }, [project, slug]);
+
+    if (prefersReducedMotion || !containerRef.current) return;
+
+    const ctx = gsap.context(() => {
+      const tl = gsap.timeline({
+        defaults: { ease: 'power3.out' },
+      });
+
+      // 1. Breadcrumb back button
+      tl.fromTo(
+        '[data-detail-back]',
+        { opacity: 0, x: -16 },
+        { opacity: 1, x: 0, duration: 0.5 }
+      );
+
+      // 2. Header elements
+      tl.fromTo(
+        '[data-detail-header] > *',
+        { opacity: 0, y: 32 },
+        { opacity: 1, y: 0, duration: 0.75, stagger: 0.08 },
+        '-=0.35'
+      );
+
+      // 3. Technologies & tools
+      tl.fromTo(
+        '[data-detail-tech]',
+        { opacity: 0, y: 24 },
+        { opacity: 1, y: 0, duration: 0.65 },
+        '-=0.45'
+      );
+
+      // 4. Project overview
+      tl.fromTo(
+        '[data-detail-overview]',
+        { opacity: 0, y: 24 },
+        { opacity: 1, y: 0, duration: 0.65 },
+        '-=0.45'
+      );
+
+      // 5. Core features
+      tl.fromTo(
+        '[data-detail-features]',
+        { opacity: 0, y: 24 },
+        { opacity: 1, y: 0, duration: 0.65 },
+        '-=0.45'
+      );
+
+      // 6. Engineering challenges
+      tl.fromTo(
+        '[data-detail-challenges]',
+        { opacity: 0, y: 24 },
+        { opacity: 1, y: 0, duration: 0.65 },
+        '-=0.45'
+      );
+
+      // 7. Footer actions
+      tl.fromTo(
+        '[data-detail-footer]',
+        { opacity: 0, y: 20 },
+        { opacity: 1, y: 0, duration: 0.55 },
+        '-=0.4'
+      );
+    }, containerRef);
+
+    return () => ctx.revert();
+  }, [project, slug, prefersReducedMotion]);
 
   if (!project) {
     return (
@@ -50,10 +119,13 @@ export const ProjectDetail: React.FC = () => {
   }
 
   return (
-    <article className="py-12 lg:py-20 text-left transition-colors duration-300">
+    <article
+      ref={containerRef}
+      className="py-12 lg:py-20 text-left transition-colors duration-300"
+    >
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
         {/* Navigation Breadcrumb / Back button */}
-        <div>
+        <div data-detail-back>
           <Link
             to="/#portfolio"
             className="inline-flex items-center text-sm font-medium text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors p-1 rounded-lg focus-visible:outline-2 focus-visible:outline-[var(--color-focus)]"
@@ -64,7 +136,7 @@ export const ProjectDetail: React.FC = () => {
         </div>
 
         {/* Project Header */}
-        <header className="space-y-4 border-b border-[var(--color-border)] pb-8">
+        <header data-detail-header className="space-y-4 border-b border-[var(--color-border)] pb-8">
           <div className="flex flex-wrap items-center gap-3">
             <span className="text-xs font-mono uppercase px-2.5 py-1 rounded bg-[var(--color-surface-raised)] text-[var(--color-accent)] border border-[var(--color-border)]">
               {project.category}
@@ -131,7 +203,7 @@ export const ProjectDetail: React.FC = () => {
         </header>
 
         {/* Tech Stack List */}
-        <section className="space-y-3">
+        <section data-detail-tech className="space-y-3">
           <h2 className="text-sm font-mono uppercase tracking-wider text-[var(--color-text)] flex items-center space-x-2">
             <Layers className="w-4 h-4 text-[var(--color-accent)]" />
             <span>Technologies & Tools</span>
@@ -149,7 +221,7 @@ export const ProjectDetail: React.FC = () => {
         </section>
 
         {/* Overview & Detailed Description */}
-        <section className="space-y-4">
+        <section data-detail-overview className="space-y-4">
           <h2 className="text-xl font-bold text-[var(--color-text)]">
             Project Overview
           </h2>
@@ -160,7 +232,7 @@ export const ProjectDetail: React.FC = () => {
 
         {/* Key Features */}
         {project.features && project.features.length > 0 && (
-          <section className="space-y-4">
+          <section data-detail-features className="space-y-4">
             <h2 className="text-xl font-bold text-[var(--color-text)]">
               Core Architecture & Features
             </h2>
@@ -182,7 +254,7 @@ export const ProjectDetail: React.FC = () => {
 
         {/* Challenges & Solutions */}
         {project.challenges && project.challenges.length > 0 && (
-          <section className="space-y-6 pt-4 border-t border-[var(--color-border)]">
+          <section data-detail-challenges className="space-y-6 pt-4 border-t border-[var(--color-border)]">
             <h2 className="text-xl font-bold text-[var(--color-text)]">
               Engineering Challenges & Solutions
             </h2>
@@ -221,7 +293,7 @@ export const ProjectDetail: React.FC = () => {
         )}
 
         {/* Bottom Back Action */}
-        <div className="pt-8 border-t border-[var(--color-border)] flex justify-between items-center">
+        <div data-detail-footer className="pt-8 border-t border-[var(--color-border)] flex justify-between items-center">
           <Button variant="secondary" onClick={() => navigate('/#portfolio')}>
             <ArrowLeft className="w-4 h-4 mr-2" />
             <span>Return to Portfolio</span>

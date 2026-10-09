@@ -1,10 +1,12 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { FolderGit2, Award, Cpu, AlertCircle } from 'lucide-react';
 import { projectsData } from '../data/projects';
 import { certificatesData } from '../data/certificates';
 import { ProjectCard } from '../components/portfolio/ProjectCard';
 import { CertificateCard } from '../components/portfolio/CertificateCard';
 import { TechGrid } from '../components/portfolio/TechGrid';
+import { useReducedMotion } from '../hooks/useReducedMotion';
+import { gsap } from '../utils/gsap';
 
 type TabKey = 'projects' | 'certificates' | 'tech';
 
@@ -17,27 +19,124 @@ interface TabItem {
 
 export const PortfolioShowcase: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabKey>('projects');
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const containerRef = useRef<HTMLElement>(null);
   const tabListRef = useRef<HTMLDivElement>(null);
+  const activePanelRef = useRef<HTMLDivElement>(null);
+  const prefersReducedMotion = useReducedMotion();
+  const hasRevealedRef = useRef(false);
 
   const tabs: TabItem[] = [
     {
       key: 'projects',
       label: 'Projects',
       icon: <FolderGit2 className="w-4 h-4" />,
-      count: projectsData.length
+      count: projectsData.length,
     },
     {
       key: 'certificates',
       label: 'Certificates',
       icon: <Award className="w-4 h-4" />,
-      count: certificatesData.length
+      count: certificatesData.length,
     },
     {
       key: 'tech',
       label: 'Tech Stack',
       icon: <Cpu className="w-4 h-4" />,
-    }
+    },
   ];
+
+  // Initial Section Entrance Animation with ScrollTrigger
+  useEffect(() => {
+    if (prefersReducedMotion || !containerRef.current) return;
+
+    const ctx = gsap.context(() => {
+      const tl = gsap.timeline({
+        scrollTrigger: {
+          trigger: containerRef.current,
+          start: 'top 80%',
+          once: true,
+        },
+        onComplete: () => {
+          hasRevealedRef.current = true;
+        },
+        defaults: { ease: 'power3.out' },
+      });
+
+      // 1. Main Title & Subtitle upward reveal
+      tl.fromTo(
+        '[data-portfolio-heading] > *',
+        { opacity: 0, y: 38 },
+        { opacity: 1, y: 0, duration: 0.75, stagger: 0.1 }
+      );
+
+      // 2. Tabs sequential appearance
+      tl.fromTo(
+        '[data-portfolio-tab]',
+        { opacity: 0, y: 20 },
+        { opacity: 1, y: 0, duration: 0.6, stagger: 0.08 },
+        '-=0.45'
+      );
+
+      // 3. Project Cards staggered upward reveal
+      tl.fromTo(
+        '[data-portfolio-card]',
+        { opacity: 0, y: 42 },
+        { opacity: 1, y: 0, duration: 0.7, stagger: 0.09, ease: 'power3.out' },
+        '-=0.35'
+      );
+    }, containerRef);
+
+    return () => ctx.revert();
+  }, [prefersReducedMotion]);
+
+  // Smooth Tab Switching Handler
+  const handleTabChange = (newTab: TabKey) => {
+    if (newTab === activeTab || isTransitioning) return;
+
+    if (prefersReducedMotion) {
+      setActiveTab(newTab);
+      return;
+    }
+
+    const currentPanel = activePanelRef.current;
+    if (currentPanel) {
+      setIsTransitioning(true);
+      gsap.to(currentPanel, {
+        opacity: 0,
+        y: -10,
+        duration: 0.18,
+        ease: 'power2.in',
+        onComplete: () => {
+          setActiveTab(newTab);
+          setIsTransitioning(false);
+        },
+      });
+    } else {
+      setActiveTab(newTab);
+    }
+  };
+
+  // Animate incoming tab panel after tab state updates
+  useEffect(() => {
+    if (prefersReducedMotion || !hasRevealedRef.current || !activePanelRef.current) return;
+
+    const panel = activePanelRef.current;
+    gsap.fromTo(
+      panel,
+      { opacity: 0, y: 16 },
+      { opacity: 1, y: 0, duration: 0.38, ease: 'power3.out' }
+    );
+
+    const cards = panel.querySelectorAll('[data-portfolio-card]');
+    if (cards.length > 0) {
+      gsap.fromTo(
+        cards,
+        { opacity: 0, y: 24 },
+        { opacity: 1, y: 0, duration: 0.45, stagger: 0.05, ease: 'power3.out' }
+      );
+    }
+  }, [activeTab, prefersReducedMotion]);
 
   // Accessible keyboard navigation across tabs
   const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
@@ -55,7 +154,7 @@ export const PortfolioShowcase: React.FC = () => {
     }
 
     e.preventDefault();
-    setActiveTab(tabs[nextIndex].key);
+    handleTabChange(tabs[nextIndex].key);
     const buttons = tabListRef.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]');
     if (buttons && buttons[nextIndex]) {
       buttons[nextIndex].focus();
@@ -64,12 +163,13 @@ export const PortfolioShowcase: React.FC = () => {
 
   return (
     <section
+      ref={containerRef}
       id="portfolio"
       className="py-20 lg:py-28 border-t border-[var(--color-border)] bg-[var(--color-bg)] transition-colors duration-300"
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Section Header */}
-        <div className="max-w-2xl mb-12 text-left">
+        <div data-portfolio-heading className="max-w-2xl mb-12 text-left">
           <div className="inline-flex items-center space-x-2 text-xs font-mono uppercase tracking-wider text-[var(--color-accent)] mb-2">
             <FolderGit2 className="w-3.5 h-3.5" />
             <span>Showcase & Capabilities</span>
@@ -95,11 +195,12 @@ export const PortfolioShowcase: React.FC = () => {
               <button
                 key={tab.key}
                 role="tab"
+                data-portfolio-tab
                 id={`tab-${tab.key}`}
                 aria-selected={isActive}
                 aria-controls={`panel-${tab.key}`}
                 tabIndex={isActive ? 0 : -1}
-                onClick={() => setActiveTab(tab.key)}
+                onClick={() => handleTabChange(tab.key)}
                 onKeyDown={(e) => handleKeyDown(e, idx)}
                 className={`flex items-center space-x-2 px-5 py-3 text-sm font-medium border-b-2 -mb-[2px] transition-all cursor-pointer whitespace-nowrap focus-visible:outline-2 focus-visible:outline-[var(--color-focus)] rounded-t-lg ${
                   isActive
@@ -125,9 +226,10 @@ export const PortfolioShowcase: React.FC = () => {
           })}
         </div>
 
-        {/* Tab Panels */}
+        {/* Tab Panels with ref on the active panel */}
         {/* Projects Tab */}
         <div
+          ref={activeTab === 'projects' ? activePanelRef : undefined}
           role="tabpanel"
           id="panel-projects"
           aria-labelledby="tab-projects"
@@ -136,13 +238,16 @@ export const PortfolioShowcase: React.FC = () => {
         >
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {projectsData.map((project) => (
-              <ProjectCard key={project.id} project={project} />
+              <div key={project.id} data-portfolio-card>
+                <ProjectCard project={project} />
+              </div>
             ))}
           </div>
         </div>
 
         {/* Certificates Tab */}
         <div
+          ref={activeTab === 'certificates' ? activePanelRef : undefined}
           role="tabpanel"
           id="panel-certificates"
           aria-labelledby="tab-certificates"
@@ -152,7 +257,9 @@ export const PortfolioShowcase: React.FC = () => {
           {certificatesData.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {certificatesData.map((cert) => (
-                <CertificateCard key={cert.id} certificate={cert} />
+                <div key={cert.id} data-portfolio-card>
+                  <CertificateCard certificate={cert} />
+                </div>
               ))}
             </div>
           ) : (
@@ -176,6 +283,7 @@ export const PortfolioShowcase: React.FC = () => {
 
         {/* Tech Stack Tab */}
         <div
+          ref={activeTab === 'tech' ? activePanelRef : undefined}
           role="tabpanel"
           id="panel-tech"
           aria-labelledby="tab-tech"

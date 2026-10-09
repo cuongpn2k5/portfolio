@@ -18,5 +18,5 @@ export const profileData: ProfileData = {
   cvUrl: '', // Currently empty: UI will clearly state "CV chưa được cập nhật" as instructed
   portraitUrl: '/images/cuongpn.jpg', // Optional portrait placeholder
   location: 'Vietnam',
-  availability: 'Open to Internship & Junior Opportunities'
+  availability: 'Open for New Projects & Roles'
 };

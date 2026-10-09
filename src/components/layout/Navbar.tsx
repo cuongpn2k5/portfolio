@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Menu, X } from 'lucide-react';
+import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { useIntroTransition } from '../../hooks/useIntroTransition';
 
 interface NavItem {
@@ -19,14 +20,16 @@ const NAV_ITEMS: NavItem[] = [
 
 export const Navbar: React.FC = () => {
   const { stage } = useIntroTransition();
+  const prefersReducedMotion = useReducedMotion();
   const [isOpen, setIsOpen] = useState(false);
   const [activeSection, setActiveSection] = useState('home');
   const location = useLocation();
+  const navigate = useNavigate();
 
   // Scroll spy to detect current active section
   useEffect(() => {
     const handleScroll = () => {
-      const scrollPos = window.scrollY + 180;
+      const scrollPos = window.scrollY + 140;
       const sectionIds = ['contact', 'services', 'portfolio', 'about', 'home'];
 
       for (const id of sectionIds) {
@@ -85,10 +88,27 @@ export const Navbar: React.FC = () => {
     if (location.pathname === '/') {
       const el = document.getElementById(id);
       if (el) {
-        el.scrollIntoView({ behavior: 'smooth' });
+        const navOffset = id === 'home' ? 0 : 76;
+        const targetY = id === 'home' ? 0 : Math.max(0, el.getBoundingClientRect().top + window.scrollY - navOffset);
+        
+        try {
+          window.history.pushState(null, '', href);
+        } catch {
+          // Fallback if history state fails
+        }
+
+        if (prefersReducedMotion) {
+          window.scrollTo({ top: targetY, behavior: 'auto' });
+        } else {
+          try {
+            window.scrollTo({ top: targetY, behavior: 'smooth' });
+          } catch {
+            window.scrollTo(0, targetY);
+          }
+        }
       }
     } else {
-      window.location.href = href;
+      navigate(href);
     }
   };
 

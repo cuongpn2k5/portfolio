@@ -16,90 +16,95 @@ export const Intro: React.FC = () => {
   const urlPillRef = useRef<HTMLDivElement>(null);
 
   const handleSkip = useCallback(() => {
-    gsap.killTweensOf('*');
     skipAll();
   }, [skipAll]);
 
   useEffect(() => {
-    if (stage !== 'intro' || prefersReducedMotion) {
+    if (prefersReducedMotion) {
+      skipAll();
       return;
     }
 
     const ctx = gsap.context(() => {
       const tl = gsap.timeline({
         defaults: { ease: 'power3.out' },
+        onStart: () => containerRef.current?.setAttribute('data-intro-start', String(performance.now())),
       });
 
       // ── Step 1: 3 Circular Icons appear first ──
       tl.fromTo(
         '.intro-icon-item',
-        { opacity: 0, y: 16, scale: 0.8 },
+        { opacity: 0, y: 18, scale: 0.92 },
         {
           opacity: 1,
           y: 0,
           scale: 1,
-          stagger: 0.08,
-          duration: 0.38,
-          ease: 'back.out(1.2)',
-        }
+          stagger: 0.18,
+          duration: 0.8,
+        },
+        0.3
       );
 
       // ── Step 2: “Welcome” enters from right to left ──
       tl.fromTo(
         welcomeRef.current,
-        { opacity: 0, x: 45 },
+        { opacity: 0, x: 65 },
         {
           opacity: 1,
           x: 0,
-          duration: 0.45,
+          duration: 1.05,
         },
-        '+=0.06'
+        1.05
       );
 
       // ── Step 3: “to my” enters from the left ──
       tl.fromTo(
         toMyRef.current,
-        { opacity: 0, x: -35 },
+        { opacity: 0, x: -55 },
         {
           opacity: 1,
           x: 0,
-          duration: 0.45,
+          duration: 1.0,
         },
-        '+=0.04'
+        1.25
       );
 
       // ── Step 4: “Portfolio Website” rises from below ──
       tl.fromTo(
         portfolioTitleRef.current,
-        { opacity: 0, y: 35 },
+        { opacity: 0, y: 50 },
         {
           opacity: 1,
           y: 0,
-          duration: 0.55,
+          duration: 1.1,
         },
-        '+=0.06'
+        1.65
       );
 
       // ── Step 5: URL / small label appears last ──
       tl.fromTo(
         urlPillRef.current,
-        { opacity: 0, y: 14 },
+        { opacity: 0, y: 12 },
         {
           opacity: 1,
           y: 0,
-          duration: 0.45,
+          duration: 0.65,
           ease: 'power2.out',
         },
-        '+=0.06'
+        2.35
       );
 
       // Keep the hold and the page-transition signal in the same GSAP
       // timeline so there is no detached timeout or stale transition callback.
-      tl.call(startTransition, [], '+=0.5');
+      tl.call(startTransition, [], '+=0.2');
     }, containerRef);
 
-    return () => ctx.revert();
-  }, [stage, prefersReducedMotion, startTransition]);
+    const fallback = window.setTimeout(startTransition, 6000);
+    return () => {
+      window.clearTimeout(fallback);
+      ctx.revert();
+    };
+  }, [prefersReducedMotion, startTransition, skipAll]);
 
   if (stage === 'entered') return null;
 

@@ -22,7 +22,7 @@ export function createIDCardTextures(profile: ProfileData) {
 
   // Outer border with subtle corner radius styling
   ctx.strokeStyle = '#d6d6e0';
-  ctx.lineWidth = 14;
+  ctx.lineWidth = 4;
   ctx.beginPath();
   ctx.roundRect(14, 14, 996, 1508, 48);
   ctx.stroke();
@@ -34,11 +34,12 @@ export function createIDCardTextures(profile: ProfileData) {
   ctx.fill();
 
   // ── Large Black-and-White Portrait Photo Area ──
-  const photoX = 64;
-  const photoY = 96;
-  const photoW = 896;
-  const photoH = 1020;
-  const photoRadius = 32;
+  // Roughly 86% of the unchanged 1024 × 1536 front, with a thin white frame.
+  const photoX = 24;
+  const photoY = 68;
+  const photoW = 976;
+  const photoH = 1384;
+  const photoRadius = 28;
 
   ctx.save();
   ctx.beginPath();
@@ -143,43 +144,15 @@ export function createIDCardTextures(profile: ProfileData) {
   // Name
   ctx.textAlign = 'center';
   ctx.fillStyle = '#111116';
-  ctx.font = 'bold 54px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-  ctx.letterSpacing = '2px';
-  ctx.fillText(profile.name.toUpperCase(), 512, 1200);
-
-  // Subtle accent line
-  ctx.strokeStyle = '#c8c8d4';
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.moveTo(340, 1235);
-  ctx.lineTo(684, 1235);
-  ctx.stroke();
+  ctx.font = '600 26px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.letterSpacing = '1.5px';
+  ctx.fillText(profile.name.toUpperCase(), 512, 1485, photoW);
 
   // Role
   ctx.fillStyle = '#444452';
-  ctx.font = '600 32px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-  ctx.letterSpacing = '3px';
-  ctx.fillText(profile.role.toUpperCase(), 512, 1290);
-
-  // Education / Status Subtitle
-  ctx.fillStyle = '#7a7a8c';
-  ctx.font = '500 24px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-  ctx.letterSpacing = '2px';
-  ctx.fillText(profile.education.status.toUpperCase(), 512, 1345);
-
-  // Small bottom credential badge
-  ctx.fillStyle = '#ebebf2';
-  ctx.beginPath();
-  ctx.roundRect(322, 1395, 380, 52, 26);
-  ctx.fill();
-  ctx.strokeStyle = '#d4d4e0';
-  ctx.lineWidth = 2;
-  ctx.stroke();
-
-  ctx.fillStyle = '#6b6b7a';
-  ctx.font = 'bold 20px monospace';
-  ctx.letterSpacing = '3px';
-  ctx.fillText('ID: PNC-2026 // VERIFIED', 512, 1428);
+  ctx.font = '500 18px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.letterSpacing = '1px';
+  ctx.fillText(profile.role.toUpperCase(), 512, 1512, photoW);
 
   // ── 2. BACK CARD TEXTURE ───────────────────────────────────────────────
   const backCanvas = document.createElement('canvas');
