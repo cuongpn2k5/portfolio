@@ -32,7 +32,7 @@ export const App: React.FC = () => {
   return (
     <ThemeProvider>
       <IntroTransitionProvider>
-        <BrowserRouter>
+        <BrowserRouter basename={import.meta.env.BASE_URL}>
           <ScrollToAnchor />
           <Routes>
             <Route path="/" element={<Layout />}>

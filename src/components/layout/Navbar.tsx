@@ -150,7 +150,7 @@ export const Navbar: React.FC = () => {
               return (
                 <a
                   key={item.name}
-                  href={item.href}
+                  href={`${import.meta.env.BASE_URL}${item.href.slice(1)}`}
                   onClick={(e) => {
                     if (location.pathname === '/') {
                       e.preventDefault();
@@ -207,7 +207,7 @@ export const Navbar: React.FC = () => {
               return (
                 <a
                   key={item.name}
-                  href={item.href}
+                  href={`${import.meta.env.BASE_URL}${item.href.slice(1)}`}
                   onClick={(e) => {
                     if (location.pathname === '/') {
                       e.preventDefault();

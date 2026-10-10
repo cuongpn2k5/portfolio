@@ -149,3 +149,25 @@ To update projects, personal info, education, skills, CV, or contact details, se
 ## 📄 License
 
 MIT License. Designed and engineered for **Phan Nhat Cuong**.
+
+## GitHub Pages deployment
+
+In repository **Settings → Pages → Build and deployment**, set **Source** to
+**GitHub Actions**. Push these changes to `main`, or run **Deploy portfolio to
+GitHub Pages** manually from the Actions tab once the workflow is on `main`.
+The workflow installs locked dependencies with `npm ci`, builds the app, and
+deploys only `dist` to https://cuongpn2k5.github.io/portfolio/.
+
+Vite and BrowserRouter share the `/portfolio/` base. For files in `public`, use
+`${import.meta.env.BASE_URL}images/example.jpg` (or `documents/example.pdf`)
+in TypeScript. Imported assets in `src` are handled by Vite. The CV is currently
+unconfigured; add the PDF to `public/documents` before setting `cvUrl`.
+
+The build also creates `dist/404.html` from the compiled entry point so direct
+project links and refreshes render the app on Pages. GitHub returns HTTP 404
+for these nested URLs even though React renders the matching project page.
+
+Verify locally with `npm run build` and `npm run preview`, then visit
+http://localhost:4173/portfolio/. `node tests/pages-deployment.mjs` tests the
+compiled assets and nested routes against a Pages-style static server; set
+`BROWSER_PATH` if Microsoft Edge is installed elsewhere.

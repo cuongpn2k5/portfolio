@@ -16,7 +16,7 @@ export const profileData: ProfileData = {
     // period: '',      // Optional: Add study period here
   },
   cvUrl: '', // Currently empty: UI will clearly state "CV chưa được cập nhật" as instructed
-  portraitUrl: '/images/cuongpn.jpg', // Optional portrait placeholder
+  portraitUrl: `${import.meta.env.BASE_URL}images/cuongpn.jpg`,
   location: 'Vietnam',
   availability: 'Open for New Projects & Roles'
 };
